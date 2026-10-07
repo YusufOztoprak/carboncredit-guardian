@@ -9,7 +9,7 @@ from app.config import settings
 from app.db import Base, engine, get_db
 from app.models import MonthlyReport, Project
 from app.schemas import ProjectCreate, ProjectOut
-
+from app.pvgis import PVGISError, get_expected_production
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -79,3 +79,16 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return to_out(project)
+
+@app.get("/pvgis/expected")
+def pvgis_expected(lat: float, lon: float, capacity_kwp: float):
+    """Debug endpoint: expected monthly output from PVGIS."""
+    try:
+        result = get_expected_production(lat, lon, capacity_kwp)
+    except PVGISError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {
+        "monthly_kwh": result.monthly_kwh,
+        "monthly_sd_kwh": result.monthly_sd_kwh,
+        "annual_kwh": result.annual_kwh,
+    }
