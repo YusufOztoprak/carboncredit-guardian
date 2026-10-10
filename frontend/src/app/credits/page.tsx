@@ -1,8 +1,9 @@
 "use client";
 
 import { useAccount, useReadContracts } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
 import { CARBON_CREDIT_ADDRESS, carbonCreditAbi } from "@/lib/contract";
-import { mockProjects } from "@/lib/mockData";
+import { getProjects } from "@/lib/api";
 import CreditActions from "@/components/CreditActions";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
@@ -10,21 +11,26 @@ const ZERO = "0x0000000000000000000000000000000000000000" as const;
 export default function CreditsPage() {
   const { address, isConnected } = useAccount();
 
+  const { data: projects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: getProjects,
+  });
+  const list = projects ?? [];
+
   const { data, isLoading, isError, refetch } = useReadContracts({
-    contracts: mockProjects.map((p) => ({
+    contracts: list.map((p) => ({
       address: CARBON_CREDIT_ADDRESS,
       abi: carbonCreditAbi,
       functionName: "balanceOf" as const,
       args: [address ?? ZERO, BigInt(p.id)] as const,
     })),
-    query: { enabled: isConnected && !!address },
+    query: { enabled: isConnected && !!address && list.length > 0 },
   });
 
-  const rows = mockProjects.map((project, i) => ({
+  const rows = list.map((project, i) => ({
     project,
     balance: (data?.[i]?.result as bigint | undefined) ?? BigInt(0),
   }));
-
   return (
     <div>
       <h1 className="mb-2 text-2xl font-semibold">My credits</h1>
