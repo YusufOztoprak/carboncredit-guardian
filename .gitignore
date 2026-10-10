@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Foundry
+cache/
+broadcast/
+
+# IDE
+.idea/
+.vscode/
