@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CARBON_CREDIT_ADDRESS, carbonCreditAbi } from "@/lib/contract";
 import { getProjects } from "@/lib/api";
 import CreditActions from "@/components/CreditActions";
+import EmptyState from "@/components/EmptyState";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
 
@@ -31,6 +32,7 @@ export default function CreditsPage() {
     project,
     balance: (data?.[i]?.result as bigint | undefined) ?? BigInt(0),
   }));
+  const totalOwned = rows.reduce((s, r) => s + r.balance, BigInt(0));
   return (
     <div>
       <h1 className="mb-2 text-2xl font-semibold">My credits</h1>
@@ -48,6 +50,11 @@ export default function CreditsPage() {
         <p className="text-sm text-red-700">
           Could not read balances. Check your network and try again.
         </p>
+      ) : totalOwned === BigInt(0) ? (
+        <EmptyState>
+          You don&apos;t own any credits yet. Credits appear here after a verified
+          project is minted to your wallet.
+        </EmptyState>
       ) : (
         <div className="space-y-4">
           {rows.map(({ project, balance }) => (

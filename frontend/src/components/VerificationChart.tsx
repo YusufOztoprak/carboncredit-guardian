@@ -35,12 +35,12 @@ export default function VerificationChart({
   });
 
   return (
-    <div className="h-80 w-full">
+    <div className="h-64 w-full sm:h-80">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="month" />
-          <YAxis unit=" MWh" width={80} />
+          <YAxis unit=" MWh" width={64} tick={{ fontSize: 12 }} />
           <Tooltip />
           <Legend />
           <Bar

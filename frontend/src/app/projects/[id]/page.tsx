@@ -5,8 +5,13 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import StatusBadge from "@/components/StatusBadge";
 import VerificationChart from "@/components/VerificationChart";
+import ProjectActions from "@/components/ProjectActions";
+import ErrorBox from "@/components/ErrorBox";
+import Skeleton from "@/components/Skeleton";
+import CopyButton from "@/components/CopyButton";
 import { MONTHS } from "@/lib/mockData";
 import { getProject, kwhToMwh, riskScore } from "@/lib/api";
+import { shortAddr } from "@/lib/format";
 
 const card = "rounded-lg border border-slate-200 bg-white p-4";
 
@@ -17,18 +22,27 @@ export default function ProjectPage() {
     isLoading,
     isError,
     error,
+    refetch,
   } = useQuery({
     queryKey: ["project", id],
     queryFn: () => getProject(id),
   });
 
   if (isLoading)
-    return <p className="text-sm text-slate-600">Loading project...</p>;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-24" />
+        <Skeleton className="h-80" />
+      </div>
+    );
+
   if (isError || !project)
     return (
-      <p className="text-sm text-red-700">
-        Could not load project: {error?.message}
-      </p>
+      <ErrorBox
+        message={error?.message ?? "Project not found."}
+        onRetry={() => refetch()}
+      />
     );
 
   const v = project.latest_verification;
@@ -39,13 +53,25 @@ export default function ProjectPage() {
         &larr; All projects
       </Link>
 
-      <div>
+      <div className="space-y-1">
         <h1 className="text-2xl font-semibold">{project.name}</h1>
         <p className="text-sm text-slate-600">
           {project.latitude.toFixed(2)}, {project.longitude.toFixed(2)} &middot;{" "}
           {project.capacity_kwp} kWp
         </p>
+        <p className="text-xs text-slate-500">
+          Owner {shortAddr(project.owner_address)}{" "}
+          <CopyButton value={project.owner_address} />
+        </p>
+        <Link
+          href={`/verify/${project.id}`}
+          className="text-sm text-teal-800 underline"
+        >
+          Public verification page
+        </Link>
       </div>
+
+      <ProjectActions project={project} />
 
       {!v ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -107,7 +133,9 @@ export default function ProjectPage() {
                 </b>
               </p>
               <p
-                className={`mt-2 text-sm font-medium ${v.passed ? "text-green-700" : "text-red-700"}`}
+                className={`mt-2 text-sm font-medium ${
+                  v.passed ? "text-green-700" : "text-red-700"
+                }`}
               >
                 {v.passed ? "Verification passed" : "Verification failed"}
               </p>

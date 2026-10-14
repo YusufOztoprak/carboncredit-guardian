@@ -40,20 +40,19 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
     hash,
   });
 
+  // Refresh balances once the transaction is confirmed (no state is set here).
   useEffect(() => {
-    if (isSuccess) {
-      onDone();
-      setAmount("");
-      setTo("");
-      setBeneficiary("");
-      setReason("");
-    }
+    if (isSuccess) onDone();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
 
   function open(next: Mode) {
     reset();
     setFormError(null);
+    setAmount("");
+    setTo("");
+    setBeneficiary("");
+    setReason("");
     setMode(next);
   }
 
