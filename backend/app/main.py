@@ -6,15 +6,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import Base, engine, get_db
-from app.models import MonthlyReport, Project
-from app.schemas import ProjectCreate, ProjectOut
+from app.verify import verify_claim
+from app.db import Base, add_missing_columns, engine, get_db
+from app.models import MonthlyReport, Project, Verification
 from app.pvgis import PVGISError, get_expected_production
+from app.schemas import ProjectCreate, ProjectOut, VerificationOut, VerifyResponse
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Hackathon shortcut: create tables on startup instead of migrations.
     Base.metadata.create_all(bind=engine)
+    add_missing_columns()
     yield
 
 
@@ -40,6 +43,8 @@ def to_out(project: Project) -> ProjectOut:
         status=project.status,
         created_at=project.created_at,
         monthly_kwh=[r.reported_kwh for r in project.monthly_reports],
+        mint_tx_hash=project.mint_tx_hash,
+        minted_amount=project.minted_amount,
         latest_verification=latest,
     )
 
@@ -80,15 +85,45 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Project not found")
     return to_out(project)
 
-@app.get("/pvgis/expected")
-def pvgis_expected(lat: float, lon: float, capacity_kwp: float):
-    """Debug endpoint: expected monthly output from PVGIS."""
+
+@app.post("/projects/{project_id}/verify", response_model=VerifyResponse)
+def verify_project(project_id: int, db: Session = Depends(get_db)):
+    """Layer 1: compare reported production with the PVGIS physical best case."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.status == "minted":
+        raise HTTPException(status_code=409, detail="Credits already minted for this project")
+
     try:
-        result = get_expected_production(lat, lon, capacity_kwp)
+        expected = get_expected_production(project.latitude, project.longitude, project.capacity_kwp)
     except PVGISError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    return {
-        "monthly_kwh": result.monthly_kwh,
-        "monthly_sd_kwh": result.monthly_sd_kwh,
-        "annual_kwh": result.annual_kwh,
-    }
+
+    reported = [r.reported_kwh for r in project.monthly_reports]
+    result = verify_claim(reported, expected, settings.grid_emission_factor_t_per_mwh)
+
+    verification = Verification(
+        project_id=project.id,
+        expected_kwh_total=result.expected_kwh_total,
+        reported_kwh_total=result.reported_kwh_total,
+        expected_monthly_kwh=result.expected_monthly_kwh,
+        monthly_upper_kwh=result.monthly_upper_kwh,
+        annual_limit_kwh=result.annual_limit_kwh,
+        anomaly_months=result.exceeding_months,  # flagged months (all layers)
+        risk_score_bp=result.risk_score_bp,
+        passed=result.passed,
+        avoided_tco2=result.avoided_tco2,
+    )
+    project.status = "verified" if result.passed else "flagged"
+    db.add(verification)
+    db.commit()
+    db.refresh(verification)
+
+    return VerifyResponse(
+        project_id=project.id,
+        status=project.status,
+        physical_ratio=result.physical_ratio,
+        reasons=result.reasons,
+        verification=VerificationOut.model_validate(verification),
+    )

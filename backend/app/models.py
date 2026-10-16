@@ -23,6 +23,9 @@ class Project(Base):
     owner_address: Mapped[str] = mapped_column(String(42))
     # pending -> verified / flagged -> minted
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Filled in after the backend mints credits on-chain
+    mint_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    minted_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     monthly_reports: Mapped[list["MonthlyReport"]] = relationship(
@@ -57,6 +60,8 @@ class Verification(Base):
     expected_kwh_total: Mapped[float] = mapped_column(Float)
     reported_kwh_total: Mapped[float] = mapped_column(Float)
     expected_monthly_kwh: Mapped[list] = mapped_column(JSON)  # 12 values from PVGIS
+    monthly_upper_kwh: Mapped[list | None] = mapped_column(JSON, nullable=True)  # physical upper bounds
+    annual_limit_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
     anomaly_months: Mapped[list] = mapped_column(JSON, default=list)  # e.g. [1, 12]
     risk_score_bp: Mapped[int] = mapped_column(Integer)  # 0-10000, same scale as the contract
     passed: Mapped[bool] = mapped_column(Boolean)

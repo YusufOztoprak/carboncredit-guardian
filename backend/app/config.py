@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./dev.db"
     cors_origins: str = "http://localhost:3000"
 
+    # Turkish national grid combined margin for solar/wind projects (2021),
+    # Ministry of Energy and Natural Resources, TUESEF information form.
+    grid_emission_factor_t_per_mwh: float = 0.6345
+
+    # Public URL of this API, used for on-chain token metadata links
+    public_base_url: str = "https://carboncredit-guardian.onrender.com"
+
+    chain_id: int = 11155111  # Sepolia
     sepolia_rpc_url: str = ""
     contract_address: str = ""
     verifier_private_key: str = ""

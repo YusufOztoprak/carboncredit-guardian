@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class ProjectCreate(BaseModel):
@@ -27,11 +27,27 @@ class VerificationOut(BaseModel):
     expected_kwh_total: float
     reported_kwh_total: float
     expected_monthly_kwh: list[float]
+    monthly_upper_kwh: list[float] | None = None
+    annual_limit_kwh: float | None = None
     anomaly_months: list[int]
     risk_score_bp: int
     passed: bool
     avoided_tco2: float
     created_at: datetime
+
+    @computed_field
+    @property
+    def credit_amount(self) -> int:
+        """Whole tonnes of CO2 = number of credit tokens to mint."""
+        return int(self.avoided_tco2)
+
+
+class VerifyResponse(BaseModel):
+    project_id: int
+    status: str
+    physical_ratio: float
+    reasons: list[str]
+    verification: VerificationOut
 
 
 class ProjectOut(BaseModel):
@@ -46,4 +62,6 @@ class ProjectOut(BaseModel):
     status: str
     created_at: datetime
     monthly_kwh: list[float]
+    mint_tx_hash: str | None = None
+    minted_amount: int | None = None
     latest_verification: VerificationOut | None = None
