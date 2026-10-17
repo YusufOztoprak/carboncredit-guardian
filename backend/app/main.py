@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -50,9 +51,28 @@ def to_out(project: Project) -> ProjectOut:
     )
 
 
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/pvgis/expected")
+def pvgis_expected(lat: float, lon: float, capacity_kwp: float):
+    """Expected monthly output from PVGIS for a location and capacity (physical best case)."""
+    try:
+        result = get_expected_production(lat, lon, capacity_kwp)
+    except PVGISError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {
+        "monthly_kwh": result.monthly_kwh,
+        "monthly_sd_kwh": result.monthly_sd_kwh,
+        "annual_kwh": result.annual_kwh,
+    }
 
 
 @app.post("/projects", response_model=ProjectOut, status_code=201)
