@@ -10,7 +10,8 @@ from app.verify import verify_claim
 from app.db import Base, add_missing_columns, engine, get_db
 from app.models import MonthlyReport, Project, Verification
 from app.pvgis import PVGISError, get_expected_production
-from app.schemas import ProjectCreate, ProjectOut, VerificationOut, VerifyResponse
+from app.chain import ChainError, mint_credits
+from app.schemas import MintResponse, ProjectCreate, ProjectOut, VerificationOut, VerifyResponse
 
 
 @asynccontextmanager
@@ -88,7 +89,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 @app.post("/projects/{project_id}/verify", response_model=VerifyResponse)
 def verify_project(project_id: int, db: Session = Depends(get_db)):
-    """Layer 1: compare reported production with the PVGIS physical best case."""
+    """Run both verification layers (physical limit + AI anomaly model) and store the result."""
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -110,7 +111,10 @@ def verify_project(project_id: int, db: Session = Depends(get_db)):
         expected_monthly_kwh=result.expected_monthly_kwh,
         monthly_upper_kwh=result.monthly_upper_kwh,
         annual_limit_kwh=result.annual_limit_kwh,
-        anomaly_months=result.exceeding_months,  # flagged months (all layers)
+        anomaly_months=result.anomaly_months,
+        physical_anomaly_months=result.exceeding_months,
+        ai_anomaly_months=result.ai_anomaly_months,
+        ai_month_scores=result.ai_month_scores,
         risk_score_bp=result.risk_score_bp,
         passed=result.passed,
         avoided_tco2=result.avoided_tco2,
@@ -126,4 +130,41 @@ def verify_project(project_id: int, db: Session = Depends(get_db)):
         physical_ratio=result.physical_ratio,
         reasons=result.reasons,
         verification=VerificationOut.model_validate(verification),
+    )
+
+
+@app.post("/projects/{project_id}/mint", response_model=MintResponse)
+def mint_project(project_id: int, db: Session = Depends(get_db)):
+    """Mint credits on-chain for a verified project (1 token = 1 tCO2) to its owner."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.status == "minted":
+        raise HTTPException(status_code=409, detail="Credits already minted for this project")
+    if project.status != "verified":
+        raise HTTPException(status_code=409, detail=f"Project must be verified first (status: {project.status})")
+
+    latest = max(project.verifications, key=lambda v: v.created_at)
+    amount = int(latest.avoided_tco2)
+    if amount <= 0:
+        raise HTTPException(status_code=409, detail="Nothing to mint (less than 1 tCO2 verified)")
+
+    metadata_uri = f"{settings.public_base_url.rstrip('/')}/projects/{project.id}"
+    try:
+        tx_hash = mint_credits(project.owner_address, project.id, amount, metadata_uri, latest.risk_score_bp)
+    except ChainError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    project.status = "minted"
+    project.mint_tx_hash = tx_hash
+    project.minted_amount = amount
+    db.commit()
+
+    return MintResponse(
+        project_id=project.id,
+        status=project.status,
+        tx_hash=tx_hash,
+        minted_amount=amount,
+        to=project.owner_address,
+        explorer_url=f"https://sepolia.etherscan.io/tx/{tx_hash}",
     )

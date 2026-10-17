@@ -1,9 +1,12 @@
-"""Physical plausibility check for a solar project's reported production.
+"""Verification of a solar project's reported production.
 
-Layer 1 of verification (layer 2, the anomaly model, is added on top later):
+Layer 1 - physical plausibility (this module):
 - Annual check: reported total vs. PVGIS best-case expected total.
 - Monthly check: each month vs. expected + tolerance, where the tolerance
   comes from PVGIS's year-to-year standard deviation for that month.
+
+Layer 2 - AI anomaly detection on the seasonal pattern (app.anomaly).
+Both layers are combined into one risk score.
 
 Risk is expressed in basis points (0-10000) - the same scale the smart
 contract stores - so it can be passed to mint() without conversion.
@@ -11,6 +14,7 @@ contract stores - so it can be passed to mint() without conversion.
 
 from dataclasses import dataclass, field
 
+from app.anomaly import ai_risk, detect_anomalous_months
 from app.pvgis import ExpectedProduction
 
 # Reported annual output may exceed the best-case PVGIS estimate by at most
@@ -31,7 +35,10 @@ class VerificationResult:
     expected_kwh_total: float
     reported_kwh_total: float
     physical_ratio: float  # reported / expected
-    exceeding_months: list[int]  # 1-12
+    exceeding_months: list[int]  # 1-12, physical layer
+    ai_anomaly_months: list[int]  # 1-12, AI layer
+    anomaly_months: list[int]  # union of both layers
+    ai_month_scores: list[float]  # 0-1 per month, higher = more suspicious
     monthly_upper_kwh: list[float]  # per-month physical upper bound (Jan..Dec)
     annual_limit_kwh: float  # expected total * (1 + ANNUAL_TOLERANCE)
     risk_score_bp: int
@@ -69,10 +76,16 @@ def verify_claim(
     annual_risk = _clamp((ratio - 1.0) / 0.20)
     # Monthly component: share of months that are physically implausible.
     monthly_risk = len(exceeding) / 12
-    risk = 0.6 * annual_risk + 0.4 * monthly_risk
+    physical_risk = 0.6 * annual_risk + 0.4 * monthly_risk
     # Any implausible month is a serious signal on its own.
     if exceeding:
-        risk = max(risk, 0.35)
+        physical_risk = max(physical_risk, 0.35)
+
+    ai_months, ai_scores = detect_anomalous_months(reported_monthly_kwh, expected)
+    model_risk = ai_risk(len(ai_months))
+
+    # Probabilistic OR: either layer alone can raise the risk, both together raise it further
+    risk = 1 - (1 - _clamp(physical_risk)) * (1 - model_risk)
     risk_bp = int(round(_clamp(risk) * 10000))
 
     reasons = []
@@ -83,6 +96,8 @@ def verify_claim(
         )
     if exceeding:
         reasons.append(f"Months above the physical range: {exceeding}.")
+    if ai_months:
+        reasons.append(f"AI model flagged an unusual seasonal pattern in months: {ai_months}.")
 
     passed = ratio <= 1 + ANNUAL_TOLERANCE and risk_bp < RISK_THRESHOLD_BP
 
@@ -96,6 +111,9 @@ def verify_claim(
         reported_kwh_total=reported_total,
         physical_ratio=round(ratio, 4),
         exceeding_months=exceeding,
+        ai_anomaly_months=ai_months,
+        anomaly_months=sorted(set(exceeding) | set(ai_months)),
+        ai_month_scores=ai_scores,
         monthly_upper_kwh=[round(u, 2) for u in monthly_upper],
         annual_limit_kwh=round(expected_total * (1 + ANNUAL_TOLERANCE), 2),
         risk_score_bp=risk_bp,

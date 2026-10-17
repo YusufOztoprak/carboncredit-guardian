@@ -30,6 +30,9 @@ class VerificationOut(BaseModel):
     monthly_upper_kwh: list[float] | None = None
     annual_limit_kwh: float | None = None
     anomaly_months: list[int]
+    physical_anomaly_months: list[int] | None = None
+    ai_anomaly_months: list[int] | None = None
+    ai_month_scores: list[float] | None = None
     risk_score_bp: int
     passed: bool
     avoided_tco2: float
@@ -65,3 +68,12 @@ class ProjectOut(BaseModel):
     mint_tx_hash: str | None = None
     minted_amount: int | None = None
     latest_verification: VerificationOut | None = None
+
+
+class MintResponse(BaseModel):
+    project_id: int
+    status: str
+    tx_hash: str
+    minted_amount: int
+    to: str
+    explorer_url: str
