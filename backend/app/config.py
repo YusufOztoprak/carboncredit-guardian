@@ -8,6 +8,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./dev.db"
     cors_origins: str = "http://localhost:3000"
+    # Any Vercel deployment of this project (production + per-deploy preview URLs)
+    cors_origin_regex: str = r"https://carboncredit-guardian[a-z0-9-]*\.vercel\.app"
 
     # Turkish national grid combined margin for solar/wind projects (2021),
     # Ministry of Energy and Natural Resources, TUESEF information form.
@@ -17,6 +19,8 @@ class Settings(BaseSettings):
     public_base_url: str = "https://carboncredit-guardian.onrender.com"
 
     chain_id: int = 11155111  # Sepolia
+    # First block to scan for contract events (just before the first real mint)
+    contract_start_block: int = 11934000
     sepolia_rpc_url: str = ""
     contract_address: str = ""
     verifier_private_key: str = ""
