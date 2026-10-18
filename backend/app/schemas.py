@@ -77,3 +77,41 @@ class MintResponse(BaseModel):
     minted_amount: int
     to: str
     explorer_url: str
+
+
+class CreditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    event_type: str  # mint / transfer / retire
+    amount: int
+    from_address: str | None
+    to_address: str | None
+    beneficiary: str | None
+    reason: str | None
+    tx_hash: str
+    block_number: int
+    block_timestamp: datetime | None
+
+    @computed_field
+    @property
+    def explorer_url(self) -> str:
+        return f"https://sepolia.etherscan.io/tx/{self.tx_hash}"
+
+
+class CreditHistory(BaseModel):
+    project_id: int
+    project_name: str
+    status: str
+    risk_score_bp: int | None
+    minted: int
+    transferred: int
+    retired: int
+    outstanding: int  # minted - retired: credits still in circulation
+    events: list[CreditEventOut]
+    sync_error: str | None = None  # set if the chain could not be reached; data may be slightly stale
+
+
+class SyncResponse(BaseModel):
+    from_block: int
+    to_block: int
+    new_events: int

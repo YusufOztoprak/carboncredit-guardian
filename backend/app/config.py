@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     public_base_url: str = "https://carboncredit-guardian.onrender.com"
 
     chain_id: int = 11155111  # Sepolia
+    # First block to scan for contract events (just before the first real mint)
+    contract_start_block: int = 11934000
     sepolia_rpc_url: str = ""
     contract_address: str = ""
     verifier_private_key: str = ""

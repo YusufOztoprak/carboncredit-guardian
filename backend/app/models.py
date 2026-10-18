@@ -90,6 +90,17 @@ class CreditEvent(Base):
     amount: Mapped[int] = mapped_column(Integer)  # tonnes CO2
     beneficiary: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    block_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (UniqueConstraint("tx_hash", "log_index"),)
+
+
+class SyncState(Base):
+    """Last indexed block per sync job (so event indexing is incremental)."""
+
+    __tablename__ = "sync_state"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    last_block: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

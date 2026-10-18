@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.verify import verify_claim
 from app.db import Base, add_missing_columns, engine, get_db
-from app.models import MonthlyReport, Project, Verification
+from app.indexer import sync_events, sync_if_stale
+from app.models import CreditEvent, MonthlyReport, Project, Verification
 from app.pvgis import PVGISError, get_expected_production
 from app.chain import ChainError, mint_credits
-from app.schemas import MintResponse, ProjectCreate, ProjectOut, VerificationOut, VerifyResponse
+from app.schemas import CreditEventOut, CreditHistory, MintResponse, ProjectCreate, SyncResponse, ProjectOut, VerificationOut, VerifyResponse
 
 
 @asynccontextmanager
@@ -187,4 +188,46 @@ def mint_project(project_id: int, db: Session = Depends(get_db)):
         minted_amount=amount,
         to=project.owner_address,
         explorer_url=f"https://sepolia.etherscan.io/tx/{tx_hash}",
+    )
+
+
+@app.post("/chain/sync", response_model=SyncResponse)
+def chain_sync(db: Session = Depends(get_db)):
+    """Index new contract events (mint / transfer / retire) into the database."""
+    try:
+        return sync_events(db)
+    except ChainError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/credits/{project_id}/history", response_model=CreditHistory)
+def credit_history(project_id: int, db: Session = Depends(get_db)):
+    """Full on-chain lifecycle of a project's credits, for the public verification page."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    sync_error = sync_if_stale(db)
+    events = db.scalars(
+        select(CreditEvent)
+        .where(CreditEvent.project_id == project_id)
+        .order_by(CreditEvent.block_number, CreditEvent.log_index)
+    ).all()
+
+    def total(kind: str) -> int:
+        return sum(e.amount for e in events if e.event_type == kind)
+
+    latest = max(project.verifications, key=lambda v: v.created_at, default=None)
+    minted, retired = total("mint"), total("retire")
+    return CreditHistory(
+        project_id=project.id,
+        project_name=project.name,
+        status=project.status,
+        risk_score_bp=latest.risk_score_bp if latest else None,
+        minted=minted,
+        transferred=total("transfer"),
+        retired=retired,
+        outstanding=minted - retired,
+        events=[CreditEventOut.model_validate(e) for e in events],
+        sync_error=sync_error,
     )
