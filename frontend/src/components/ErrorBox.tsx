@@ -6,10 +6,10 @@ export default function ErrorBox({
   onRetry?: () => void;
 }) {
   return (
-    <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-      {message}{" "}
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+      <span>{message}</span>
       {onRetry && (
-        <button className="underline" onClick={onRetry}>
+        <button className="btn btn-secondary" onClick={onRetry}>
           Try again
         </button>
       )}

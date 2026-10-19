@@ -11,9 +11,6 @@ import { CARBON_CREDIT_ADDRESS, carbonCreditAbi } from "@/lib/contract";
 
 type Mode = "transfer" | "retire" | null;
 
-const input =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-teal-600 focus:outline-none";
-
 type Props = {
   projectId: number;
   balance: bigint;
@@ -40,7 +37,6 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
     hash,
   });
 
-  // Refresh balances once the transaction is confirmed (no state is set here).
   useEffect(() => {
     if (isSuccess) onDone();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,14 +104,14 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
         <button
           disabled={!hasCredits}
           onClick={() => open("transfer")}
-          className="rounded-md bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-800 disabled:opacity-40"
+          className="btn btn-secondary"
         >
           Transfer
         </button>
         <button
           disabled={!hasCredits}
           onClick={() => open("retire")}
-          className="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800 disabled:opacity-40"
+          className="btn btn-danger"
         >
           Retire
         </button>
@@ -124,23 +120,21 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
       {mode && (
         <form
           onSubmit={submit}
-          className="mt-4 space-y-3 rounded-md bg-slate-50 p-4"
+          className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
         >
           <p className="text-sm font-medium capitalize">{mode} credits</p>
 
           {mode === "retire" && (
-            <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
+            <p className="rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">
               Retiring is permanent. The credits are burned and can never be
               transferred or retired again.
             </p>
           )}
 
           <div>
-            <label className="mb-1 block text-xs text-slate-500">
-              Amount (tonnes)
-            </label>
+            <label className="label">Amount (tonnes)</label>
             <input
-              className={input}
+              className="input"
               inputMode="numeric"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -149,41 +143,35 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
 
           {mode === "transfer" ? (
             <div>
-              <label className="mb-1 block text-xs text-slate-500">
-                Recipient address
-              </label>
+              <label className="label">Recipient address</label>
               <input
-                className={input}
+                className="input"
                 placeholder="0x..."
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
           ) : (
-            <>
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">
-                  Beneficiary
-                </label>
+                <label className="label">Beneficiary</label>
                 <input
-                  className={input}
+                  className="input"
                   placeholder="e.g. Acme Corp"
                   value={beneficiary}
                   onChange={(e) => setBeneficiary(e.target.value)}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">
-                  Reason
-                </label>
+                <label className="label">Reason</label>
                 <input
-                  className={input}
+                  className="input"
                   placeholder="e.g. 2026 emissions offset"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
               </div>
-            </>
+            </div>
           )}
 
           {formError && <p className="text-sm text-red-700">{formError}</p>}
@@ -193,11 +181,7 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-md bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
-          >
+          <button type="submit" disabled={busy} className="btn btn-primary">
             {isPending
               ? "Confirm in your wallet..."
               : confirming
@@ -208,10 +192,10 @@ export default function CreditActions({ projectId, balance, onDone }: Props) {
           </button>
 
           {isSuccess && hash && (
-            <p className="text-sm text-green-700">
+            <p className="text-sm text-emerald-700">
               Done.{" "}
               <a
-                className="underline"
+                className="font-medium underline"
                 href={`https://sepolia.etherscan.io/tx/${hash}`}
                 target="_blank"
                 rel="noreferrer"

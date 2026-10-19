@@ -13,8 +13,6 @@ import { MONTHS } from "@/lib/mockData";
 import { getProject, kwhToMwh, riskScore } from "@/lib/api";
 import { shortAddr } from "@/lib/format";
 
-const card = "rounded-lg border border-slate-200 bg-white p-4";
-
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const {
@@ -32,7 +30,7 @@ export default function ProjectPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-24" />
+        <Skeleton className="h-20" />
         <Skeleton className="h-80" />
       </div>
     );
@@ -46,63 +44,105 @@ export default function ProjectPage() {
     );
 
   const v = project.latest_verification;
+  const diff = v
+    ? ((v.reported_kwh_total - v.expected_kwh_total) / v.expected_kwh_total) *
+      100
+    : 0;
+  const score = v ? riskScore(v.risk_score_bp) : 0;
+  const scoreColor =
+    score < 30
+      ? "text-emerald-700"
+      : score < 60
+        ? "text-amber-700"
+        : "text-red-700";
 
   return (
     <div className="space-y-6">
-      <Link href="/" className="text-sm text-teal-800 hover:underline">
-        &larr; All projects
+      <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
+        &larr; Projects
       </Link>
 
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">{project.name}</h1>
-        <p className="text-sm text-slate-600">
-          {project.latitude.toFixed(2)}, {project.longitude.toFixed(2)} &middot;{" "}
-          {project.capacity_kwp} kWp
-        </p>
-        <p className="text-xs text-slate-500">
-          Owner {shortAddr(project.owner_address)}{" "}
-          <CopyButton value={project.owner_address} />
-        </p>
-        <Link
-          href={`/verify/${project.id}`}
-          className="text-sm text-teal-800 underline"
-        >
-          Public verification page
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {project.name}
+            </h1>
+            <StatusBadge status={project.status} />
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            #{project.id} &middot; {project.latitude.toFixed(2)},{" "}
+            {project.longitude.toFixed(2)} &middot;{" "}
+            {project.capacity_kwp.toLocaleString()} kWp &middot; Owner{" "}
+            {shortAddr(project.owner_address)}{" "}
+            <CopyButton value={project.owner_address} />
+          </p>
+        </div>
+        <Link href={`/verify/${project.id}`} className="btn btn-secondary">
+          Public page
         </Link>
       </div>
 
       <ProjectActions project={project} />
 
       {!v ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          This project has not been verified yet. Status:{" "}
-          <StatusBadge status={project.status} />
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          This project has not been verified yet. Run verification to see the
+          result.
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className={card}>
-              <p className="text-xs text-slate-500">Status</p>
-              <div className="mt-1">
-                <StatusBadge status={project.status} />
-              </div>
-            </div>
-            <div className={card}>
+          <div className="card grid grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-slate-200">
+            <div className="p-4">
               <p className="text-xs text-slate-500">Risk score</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {riskScore(v.risk_score_bp)}
+              <p
+                className={`mt-1 text-2xl font-semibold tabular-nums ${scoreColor}`}
+              >
+                {score}
               </p>
             </div>
-            <div className={card}>
+            <div className="p-4">
               <p className="text-xs text-slate-500">Avoided CO2</p>
-              <p className="mt-1 text-2xl font-semibold">{v.avoided_tco2} t</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {v.avoided_tco2.toLocaleString()} t
+              </p>
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-slate-500">Reported</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {kwhToMwh(v.reported_kwh_total).toFixed(0)} MWh
+              </p>
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-slate-500">Vs expected</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {diff > 0 ? "+" : ""}
+                {diff.toFixed(1)}%
+              </p>
             </div>
           </div>
 
-          <div className={card}>
-            <h2 className="mb-3 font-semibold">
-              Expected vs reported production
-            </h2>
+          <div className="card p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-semibold">Monthly production (MWh)</h2>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {v.anomaly_months.length > 0 ? (
+                  <>
+                    <span className="text-slate-500">Flagged:</span>
+                    {v.anomaly_months.map((m) => (
+                      <span
+                        key={m}
+                        className="rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700"
+                      >
+                        {MONTHS[m]}
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  <span className="text-slate-500">No anomalous months</span>
+                )}
+              </div>
+            </div>
             <VerificationChart
               expected={v.expected_monthly_kwh.map(kwhToMwh)}
               reported={project.monthly_kwh.map(kwhToMwh)}
@@ -110,45 +150,16 @@ export default function ProjectPage() {
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className={card}>
-              <h2 className="mb-2 font-semibold">Layer 1: physical check</h2>
-              <p className="text-sm">
-                Reported total:{" "}
-                <b>{kwhToMwh(v.reported_kwh_total).toFixed(1)} MWh</b>
-              </p>
-              <p className="text-sm">
-                Expected total:{" "}
-                <b>{kwhToMwh(v.expected_kwh_total).toFixed(1)} MWh</b>
-              </p>
-              <p className="text-sm">
-                Difference:{" "}
-                <b>
-                  {(
-                    ((v.reported_kwh_total - v.expected_kwh_total) /
-                      v.expected_kwh_total) *
-                    100
-                  ).toFixed(1)}
-                  %
-                </b>
-              </p>
-              <p
-                className={`mt-2 text-sm font-medium ${
-                  v.passed ? "text-green-700" : "text-red-700"
-                }`}
-              >
-                {v.passed ? "Verification passed" : "Verification failed"}
-              </p>
-            </div>
-            <div className={card}>
-              <h2 className="mb-2 font-semibold">Layer 2: anomaly detection</h2>
-              <p className="text-sm">
-                Flagged months:{" "}
-                <b>
-                  {v.anomaly_months.map((i) => MONTHS[i]).join(", ") || "None"}
-                </b>
-              </p>
-            </div>
+          <div
+            className={`rounded-xl border p-4 text-sm font-medium ${
+              v.passed
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-red-200 bg-red-50 text-red-800"
+            }`}
+          >
+            {v.passed
+              ? "Passed verification. This project is eligible for minting."
+              : "Failed verification. No credits can be minted for this project."}
           </div>
         </>
       )}

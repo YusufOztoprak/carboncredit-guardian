@@ -79,6 +79,7 @@ export const riskScore = (bp: number) => Math.round(bp / 100);
 export type HistoryEvent = {
   type: "minted" | "transferred" | "retired" | "other";
   txHash?: string;
+  explorerUrl?: string;
   from?: string;
   to?: string;
   amount?: string;
@@ -87,16 +88,35 @@ export type HistoryEvent = {
   time?: string;
 };
 
-// The history response shape isn't confirmed yet, so accept common field names.
+export type HistoryTotals = {
+  minted: number;
+  transferred: number;
+  retired: number;
+  outstanding: number;
+  syncError?: string;
+};
+
+export function parseHistoryTotals(raw: unknown): HistoryTotals {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const n = (v: unknown) => Number(v ?? 0) || 0;
+  return {
+    minted: n(o.minted),
+    transferred: n(o.transferred),
+    retired: n(o.retired),
+    outstanding: n(o.outstanding),
+    syncError: typeof o.sync_error === "string" ? o.sync_error : undefined,
+  };
+}
+
 export function normalizeHistory(raw: unknown): HistoryEvent[] {
-  const list: unknown[] = Array.isArray(raw)
-    ? raw
-    : Array.isArray((raw as { events?: unknown[] } | null)?.events)
-    ? (raw as { events: unknown[] }).events
-    : [];
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const list =
+    [raw, obj.events, obj.timeline, obj.history, obj.items].find(
+      (c): c is unknown[] => Array.isArray(c)
+    ) ?? [];
 
   return list.map((item) => {
-    const e = item as Record<string, unknown>;
+    const e = (item ?? {}) as Record<string, unknown>;
     const pick = (...keys: string[]) => {
       for (const k of keys) {
         const v = e[k];
@@ -104,7 +124,7 @@ export function normalizeHistory(raw: unknown): HistoryEvent[] {
       }
       return undefined;
     };
-    const kind = (pick("event_type", "type", "event", "name") ?? "").toLowerCase();
+    const kind = (pick("event_type", "type", "event", "kind", "name") ?? "").toLowerCase();
     const type: HistoryEvent["type"] = kind.includes("mint")
       ? "minted"
       : kind.includes("retire")
@@ -114,13 +134,14 @@ export function normalizeHistory(raw: unknown): HistoryEvent[] {
       : "other";
     return {
       type,
-      txHash: pick("tx_hash", "transaction_hash", "txHash"),
-      from: pick("from", "from_address"),
-      to: pick("to", "to_address"),
-      amount: pick("amount", "value"),
+      txHash: pick("tx_hash", "transaction_hash", "txHash", "hash"),
+      explorerUrl: pick("explorer_url"),
+      from: pick("from_address", "from", "sender"),
+      to: pick("to_address", "to", "recipient"),
+      amount: pick("amount", "value", "quantity"),
       beneficiary: pick("beneficiary"),
       reason: pick("reason"),
-      time: pick("timestamp", "block_timestamp", "created_at"),
+      time: pick("block_timestamp", "timestamp", "created_at", "time"),
     };
   });
 }
