@@ -29,7 +29,6 @@ app = FastAPI(title="CarbonCredit Guardian API", version="0.1.0", lifespan=lifes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
-    allow_origin_regex=settings.cors_origin_regex or None,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -189,4 +188,49 @@ def mint_project(project_id: int, db: Session = Depends(get_db)):
         minted_amount=amount,
         to=project.owner_address,
         explorer_url=f"https://sepolia.etherscan.io/tx/{tx_hash}",
+    )
+
+
+@app.post("/chain/sync", response_model=SyncResponse)
+def chain_sync(from_block: int | None = None, db: Session = Depends(get_db)):
+    """Index new contract events (mint / transfer / retire) into the database.
+
+    Pass from_block to rescan older blocks (e.g. after switching to an RPC with full history).
+    """
+    try:
+        return sync_events(db, from_block=from_block)
+    except ChainError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.get("/credits/{project_id}/history", response_model=CreditHistory)
+def credit_history(project_id: int, db: Session = Depends(get_db)):
+    """Full on-chain lifecycle of a project's credits, for the public verification page."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    sync_error = sync_if_stale(db)
+    events = db.scalars(
+        select(CreditEvent)
+        .where(CreditEvent.project_id == project_id)
+        .order_by(CreditEvent.block_number, CreditEvent.log_index)
+    ).all()
+
+    def total(kind: str) -> int:
+        return sum(e.amount for e in events if e.event_type == kind)
+
+    latest = max(project.verifications, key=lambda v: v.created_at, default=None)
+    minted, retired = total("mint"), total("retire")
+    return CreditHistory(
+        project_id=project.id,
+        project_name=project.name,
+        status=project.status,
+        risk_score_bp=latest.risk_score_bp if latest else None,
+        minted=minted,
+        transferred=total("transfer"),
+        retired=retired,
+        outstanding=minted - retired,
+        events=[CreditEventOut.model_validate(e) for e in events],
+        sync_error=sync_error,
     )
