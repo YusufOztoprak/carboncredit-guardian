@@ -33,6 +33,7 @@ SYNC_KEY = "contract_events"
 INITIAL_CHUNK = 5_000  # blocks per eth_getLogs request (halved automatically if the RPC refuses)
 MIN_CHUNK = 50
 MIN_SYNC_INTERVAL_S = 10  # lazy sync from read endpoints at most this often
+SYNC_TIME_BUDGET_S = 20  # stop a single sync early; the next call continues from the saved cursor
 
 _sync_lock = threading.Lock()
 _last_sync_monotonic = 0.0
@@ -137,14 +138,23 @@ def _earliest_available(w3: Web3, address: str, pruned_block: int, latest: int) 
     return high
 
 
-def _get_logs_chunked(w3: Web3, address: str, start: int, end: int) -> tuple[list[dict], list[tuple[int, int]]]:
-    """Fetch logs in chunks. Returns (logs, skipped ranges the RPC no longer serves)."""
+def _get_logs_chunked(
+    w3: Web3, address: str, start: int, end: int, deadline: float | None = None
+) -> tuple[list[dict], list[tuple[int, int]], int]:
+    """Fetch logs in chunks.
+
+    Returns (logs, skipped ranges the RPC no longer serves, last block fully scanned).
+    Stops early when the deadline passes so a request never hangs on a long backlog.
+    """
     logs, skipped, chunk, cursor = [], [], INITIAL_CHUNK, start
     while cursor <= end:
+        if deadline is not None and time.monotonic() > deadline:
+            break
         to_block = min(cursor + chunk - 1, end)
         try:
             logs.extend(w3.eth.get_logs({"address": address, "fromBlock": cursor, "toBlock": to_block}))
             cursor = to_block + 1
+            chunk = min(INITIAL_CHUNK, chunk * 2)  # grow back after a temporary refusal
         except Exception as exc:  # RPCs reject large ranges / pruned ranges with different errors
             if _is_pruned_error(exc):
                 resume = _earliest_available(w3, address, cursor, end)
@@ -154,71 +164,84 @@ def _get_logs_chunked(w3: Web3, address: str, start: int, end: int) -> tuple[lis
             if chunk <= MIN_CHUNK:
                 raise ChainError(f"eth_getLogs failed for blocks {cursor}-{to_block}: {exc}") from exc
             chunk = max(MIN_CHUNK, chunk // 2)
-    return logs, skipped
+    return logs, skipped, cursor - 1
 
 
-def sync_events(db: Session, from_block: int | None = None) -> dict:
+def sync_events(db: Session, from_block: int | None = None, blocking: bool = True) -> dict | None:
     """Index new contract events. Returns a small summary.
 
     from_block forces a rescan from that block (safe: existing rows are skipped).
+    With blocking=False, returns None right away if another sync is already running.
     """
-    with _sync_lock:
-        w3 = _web3()
-        contract = _contract(w3)
-        state = db.get(SyncState, SYNC_KEY)
-        if from_block is not None:
-            start = from_block
-        else:
-            start = (state.last_block + 1) if state else settings.contract_start_block
-        latest = w3.eth.block_number
-        if start > latest:
-            return {"from_block": start, "to_block": latest, "new_events": 0, "skipped": []}
+    if not _sync_lock.acquire(blocking=blocking):
+        return None
+    try:
+        return _sync_locked(db, from_block)
+    finally:
+        _sync_lock.release()
 
-        abis = _event_abis()
-        known_projects = set(db.scalars(select(Project.id)))
-        timestamps: dict[int, datetime] = {}
-        added = 0
-        logs, skipped = _get_logs_chunked(w3, contract.address, start, latest)
-        for log in logs:
-            topic0 = log["topics"][0]
-            topic0 = (topic0.hex() if isinstance(topic0, (bytes, bytearray)) else str(topic0)).removeprefix("0x")
-            event_abi = abis.get(topic0)
-            if event_abi is None:
-                continue
-            for row in rows_from_log(log, event_abi):
-                if row["project_id"] not in known_projects:
-                    continue  # e.g. manual test mints on-chain that never existed in our DB
-                exists = db.scalar(
-                    select(CreditEvent.id).where(
-                        CreditEvent.tx_hash == row["tx_hash"], CreditEvent.log_index == row["log_index"]
-                    )
+
+def _sync_locked(db: Session, from_block: int | None) -> dict:
+    w3 = _web3()
+    contract = _contract(w3)
+    state = db.get(SyncState, SYNC_KEY)
+    if from_block is not None:
+        start = from_block
+    else:
+        start = (state.last_block + 1) if state else settings.contract_start_block
+    latest = w3.eth.block_number
+    if start > latest:
+        return {"from_block": start, "to_block": latest, "new_events": 0, "skipped": []}
+
+    abis = _event_abis()
+    known_projects = set(db.scalars(select(Project.id)))
+    timestamps: dict[int, datetime] = {}
+    added = 0
+    deadline = time.monotonic() + SYNC_TIME_BUDGET_S
+    logs, skipped, scanned_to = _get_logs_chunked(w3, contract.address, start, latest, deadline)
+    for log in logs:
+        topic0 = log["topics"][0]
+        topic0 = (topic0.hex() if isinstance(topic0, (bytes, bytearray)) else str(topic0)).removeprefix("0x")
+        event_abi = abis.get(topic0)
+        if event_abi is None:
+            continue
+        for row in rows_from_log(log, event_abi):
+            if row["project_id"] not in known_projects:
+                continue  # e.g. manual test mints on-chain that never existed in our DB
+            exists = db.scalar(
+                select(CreditEvent.id).where(
+                    CreditEvent.tx_hash == row["tx_hash"], CreditEvent.log_index == row["log_index"]
                 )
-                if exists:
-                    continue
-                block = row["block_number"]
-                if block not in timestamps:
-                    ts = w3.eth.get_block(block)["timestamp"]
-                    timestamps[block] = datetime.fromtimestamp(ts, tz=timezone.utc)
-                db.add(CreditEvent(**row, block_timestamp=timestamps[block]))
-                added += 1
+            )
+            if exists:
+                continue
+            block = row["block_number"]
+            if block not in timestamps:
+                ts = w3.eth.get_block(block)["timestamp"]
+                timestamps[block] = datetime.fromtimestamp(ts, tz=timezone.utc)
+            db.add(CreditEvent(**row, block_timestamp=timestamps[block]))
+            added += 1
 
-        if state is None:
-            state = SyncState(key=SYNC_KEY, last_block=latest)
-            db.add(state)
-        else:
-            state.last_block = latest
-        db.commit()
-        return {"from_block": start, "to_block": latest, "new_events": added, "skipped": skipped}
+    if state is None:
+        state = SyncState(key=SYNC_KEY, last_block=scanned_to)
+        db.add(state)
+    elif scanned_to > state.last_block:
+        state.last_block = scanned_to
+    db.commit()
+    return {"from_block": start, "to_block": scanned_to, "new_events": added, "skipped": skipped}
 
 
 def sync_if_stale(db: Session) -> str | None:
-    """Lazy sync for read endpoints. Returns an error message instead of raising."""
+    """Lazy sync for read endpoints. Returns an error message instead of raising.
+
+    Never waits: if a sync is already running, the page is served from the database.
+    """
     global _last_sync_monotonic
     if time.monotonic() - _last_sync_monotonic < MIN_SYNC_INTERVAL_S:
         return None
+    _last_sync_monotonic = time.monotonic()  # throttle failures too, so a down RPC is not hammered
     try:
-        sync_events(db)
-        _last_sync_monotonic = time.monotonic()
+        sync_events(db, blocking=False)
         return None
     except ChainError as exc:
         db.rollback()
