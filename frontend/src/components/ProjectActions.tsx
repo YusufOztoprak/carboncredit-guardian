@@ -1,15 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mintProject, verifyProject, type Project } from "@/lib/api";
-
-const btn =
-  "rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60";
 
 export default function ProjectActions({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["project", String(project.id)] });
+    queryClient.invalidateQueries({
+      queryKey: ["project", String(project.id)],
+    });
     queryClient.invalidateQueries({ queryKey: ["projects"] });
   };
 
@@ -22,40 +22,64 @@ export default function ProjectActions({ project }: { project: Project }) {
     onSuccess: refresh,
   });
 
-  const v = project.latest_verification;
-  const txHash =
-    mint.data && typeof mint.data.tx_hash === "string" ? mint.data.tx_hash : null;
+  const passed = project.latest_verification?.passed;
+  const alreadyMinted = project.status.toLowerCase() === "minted";
+  const txHash = mint.data?.tx_hash;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap gap-3">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
         <button
-          className={`${btn} bg-teal-700 hover:bg-teal-800`}
+          className="btn btn-secondary"
           disabled={verify.isPending}
           onClick={() => verify.mutate()}
         >
-          {verify.isPending ? "Verifying..." : v ? "Re-run verification" : "Run verification"}
+          {verify.isPending
+            ? "Verifying..."
+            : project.latest_verification
+              ? "Re-run verification"
+              : "Run verification"}
         </button>
 
-        {v?.passed && (
+        {passed && !alreadyMinted && (
           <button
-            className={`${btn} bg-slate-800 hover:bg-slate-900`}
-            disabled={mint.isPending}
+            className="btn btn-primary"
+            disabled={mint.isPending || mint.isSuccess}
             onClick={() => mint.mutate()}
           >
-            {mint.isPending ? "Minting..." : "Mint credits"}
+            {mint.isPending
+              ? "Minting..."
+              : mint.isSuccess
+                ? "Minted"
+                : "Mint credits"}
           </button>
+        )}
+
+        {alreadyMinted && (
+          <span className="text-sm text-slate-600">
+            Credits minted.{" "}
+            <Link
+              href="/credits"
+              className="font-medium text-brand-600 hover:underline"
+            >
+              See My credits
+            </Link>
+          </span>
         )}
       </div>
 
-      {verify.isError && <p className="mt-3 text-sm text-red-700">{verify.error.message}</p>}
-      {mint.isError && <p className="mt-3 text-sm text-red-700">{mint.error.message}</p>}
+      {verify.isError && (
+        <p className="text-sm text-red-700">{verify.error.message}</p>
+      )}
+      {mint.isError && (
+        <p className="text-sm text-red-700">{mint.error.message}</p>
+      )}
       {mint.isSuccess && (
-        <p className="mt-3 text-sm text-green-700">
-          Mint request sent.{" "}
+        <p className="text-sm text-emerald-700">
+          Credits minted.{" "}
           {txHash && (
             <a
-              className="underline"
+              className="font-medium underline"
               href={`https://sepolia.etherscan.io/tx/${txHash}`}
               target="_blank"
               rel="noreferrer"

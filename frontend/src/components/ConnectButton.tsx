@@ -3,9 +3,6 @@
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { sepolia } from "wagmi/chains";
 
-const btn =
-  "rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60";
-
 export default function ConnectButton() {
   const { address, isConnected, chainId } = useAccount();
   const { connect, connectors, isPending } = useConnect();
@@ -15,7 +12,7 @@ export default function ConnectButton() {
   if (!isConnected) {
     return (
       <button
-        className={`${btn} bg-teal-700 hover:bg-teal-800`}
+        className="btn btn-primary"
         disabled={isPending}
         onClick={() => connect({ connector: connectors[0] })}
       >
@@ -27,7 +24,7 @@ export default function ConnectButton() {
   if (chainId !== sepolia.id) {
     return (
       <button
-        className={`${btn} bg-amber-600 hover:bg-amber-700`}
+        className="btn btn-warn"
         onClick={() => switchChain({ chainId: sepolia.id })}
       >
         Switch to Sepolia
@@ -37,10 +34,11 @@ export default function ConnectButton() {
 
   return (
     <button
-      className={`${btn} bg-slate-700 hover:bg-slate-800`}
+      className="btn btn-secondary"
       onClick={() => disconnect()}
       title="Click to disconnect"
     >
+      <span className="h-2 w-2 rounded-full bg-emerald-500" />
       {address?.slice(0, 6)}...{address?.slice(-4)}
     </button>
   );

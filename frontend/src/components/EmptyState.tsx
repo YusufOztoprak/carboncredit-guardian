@@ -1,6 +1,10 @@
-export default function EmptyState({ children }: { children: React.ReactNode }) {
+export default function EmptyState({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600">
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-600">
       {children}
     </div>
   );

@@ -99,69 +99,16 @@ def rows_from_log(log: dict, event_abi: dict) -> list[dict]:
     ]
 
 
-def _is_pruned_error(exc: Exception) -> bool:
-    """Free RPCs drop old logs ("pruned history unavailable", code 4444)."""
-    text = str(exc).lower()
-    return "pruned" in text or "4444" in text
-
-
-def _probe(w3: Web3, address: str, block: int) -> bool:
-    """True if the RPC still serves logs for this block."""
-    try:
-        w3.eth.get_logs({"address": address, "fromBlock": block, "toBlock": block})
-        return True
-    except Exception as exc:
-        if _is_pruned_error(exc):
-            return False
-        raise ChainError(f"eth_getLogs failed at block {block}: {exc}") from exc
-
-
-def _earliest_available(w3: Web3, address: str, pruned_block: int, latest: int) -> int:
-    """First block >= pruned_block whose logs are still served (exponential + binary search)."""
-    low, step = pruned_block, 1_000
-    high = None
-    while high is None:
-        candidate = min(low + step, latest)
-        if _probe(w3, address, candidate):
-            high = candidate
-        elif candidate == latest:
-            raise ChainError("RPC serves no log history up to the latest block")
-        else:
-            low, step = candidate, step * 2
-    while high - low > 1:  # invariant: low is pruned, high is available
-        mid = (low + high) // 2
-        if _probe(w3, address, mid):
-            high = mid
-        else:
-            low = mid
-    return high
-
-
-def _get_logs_chunked(w3: Web3, address: str, start: int, end: int) -> tuple[list[dict], list[tuple[int, int]]]:
-    """Fetch logs in chunks. Returns (logs, skipped ranges the RPC no longer serves)."""
-    logs, skipped, chunk, cursor = [], [], INITIAL_CHUNK, start
     while cursor <= end:
         to_block = min(cursor + chunk - 1, end)
         try:
             logs.extend(w3.eth.get_logs({"address": address, "fromBlock": cursor, "toBlock": to_block}))
             cursor = to_block + 1
-        except Exception as exc:  # RPCs reject large ranges / pruned ranges with different errors
-            if _is_pruned_error(exc):
-                resume = _earliest_available(w3, address, cursor, end)
-                skipped.append((cursor, resume - 1))
-                cursor = resume
-                continue
             if chunk <= MIN_CHUNK:
                 raise ChainError(f"eth_getLogs failed for blocks {cursor}-{to_block}: {exc}") from exc
             chunk = max(MIN_CHUNK, chunk // 2)
-    return logs, skipped
 
 
-def sync_events(db: Session, from_block: int | None = None) -> dict:
-    """Index new contract events. Returns a small summary.
-
-    from_block forces a rescan from that block (safe: existing rows are skipped).
-    """
     with _sync_lock:
         w3 = _web3()
         contract = _contract(w3)
@@ -172,14 +119,11 @@ def sync_events(db: Session, from_block: int | None = None) -> dict:
             start = (state.last_block + 1) if state else settings.contract_start_block
         latest = w3.eth.block_number
         if start > latest:
-            return {"from_block": start, "to_block": latest, "new_events": 0, "skipped": []}
 
         abis = _event_abis()
         known_projects = set(db.scalars(select(Project.id)))
         timestamps: dict[int, datetime] = {}
         added = 0
-        logs, skipped = _get_logs_chunked(w3, contract.address, start, latest)
-        for log in logs:
             topic0 = log["topics"][0]
             topic0 = (topic0.hex() if isinstance(topic0, (bytes, bytearray)) else str(topic0)).removeprefix("0x")
             event_abi = abis.get(topic0)
@@ -208,7 +152,6 @@ def sync_events(db: Session, from_block: int | None = None) -> dict:
         else:
             state.last_block = latest
         db.commit()
-        return {"from_block": start, "to_block": latest, "new_events": added, "skipped": skipped}
 
 
 def sync_if_stale(db: Session) -> str | None:

@@ -7,7 +7,7 @@ export default function CopyButton({ value }: { value: string }) {
   return (
     <button
       type="button"
-      className="text-xs text-teal-800 underline"
+      className="text-xs font-medium text-brand-600 hover:underline"
       onClick={async () => {
         await navigator.clipboard.writeText(value);
         setCopied(true);
