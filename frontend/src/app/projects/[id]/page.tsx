@@ -134,7 +134,7 @@ export default function ProjectPage() {
                         key={m}
                         className="rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700"
                       >
-                        {MONTHS[m]}
+                        {MONTHS[m - 1]}
                       </span>
                     ))}
                   </>
@@ -146,7 +146,7 @@ export default function ProjectPage() {
             <VerificationChart
               expected={v.expected_monthly_kwh.map(kwhToMwh)}
               reported={project.monthly_kwh.map(kwhToMwh)}
-              anomalyMonths={v.anomaly_months}
+              anomalyMonths={v.anomaly_months.map((m) => m - 1)}
             />
           </div>
 
@@ -159,7 +159,7 @@ export default function ProjectPage() {
           >
             {v.passed
               ? "Passed verification. This project is eligible for minting."
-              : "Failed verification. No credits can be minted for this project."}
+              : "Flagged for review. No credits can be minted until it passes."}
           </div>
         </>
       )}
